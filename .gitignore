@@ -1,3 +1,48 @@
+# Environment and secrets
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+
+# Test, type-check, and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local tools and caches
+.antigravitycli
+.codex/
+.uv-cache/
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Project data and generated assets
+data/
+/.agents/skills
+/notes
+/sketch
+/uv.lock
+/skills-lock.json
+/package-lock.json
