@@ -8,15 +8,27 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from api.config import CHAT_MODEL, CHUNK_SIZE, EMBEDDING_MODEL, OVERLAP_RATIO, TOP_K
-from rag import answer_question
+from rag_logging import eval_run_log_path, rag_trace_log_path
+from rag_utils import answer_question
 
 
 st.set_page_config(page_title="Medium RAG Chat", page_icon="M", layout="wide")
 
 
-def _post_prompt(api_base_url: str, question: str) -> dict[str, Any]:
+def _post_prompt(
+    api_base_url: str,
+    question: str,
+    *,
+    eval_run_id: str | None = None,
+    expected_answer: str | None = None,
+) -> dict[str, Any]:
     url = f"{api_base_url.rstrip('/')}/api/prompt"
-    payload = json.dumps({"question": question}).encode("utf-8")
+    payload_data: dict[str, Any] = {"question": question, "log_rag_trace": True}
+    if eval_run_id:
+        payload_data["eval_run_id"] = eval_run_id
+    if expected_answer:
+        payload_data["expected_answer"] = expected_answer
+    payload = json.dumps(payload_data).encode("utf-8")
     request = Request(
         url,
         data=payload,
@@ -127,6 +139,13 @@ def _show_prompt(result: dict[str, Any]) -> None:
 def _show_metadata(result: dict[str, Any]) -> None:
     st.subheader("Model Metadata")
     st.json(result.get("metadata") or {})
+    st.subheader("Log Files")
+    st.json(
+        {
+            "rag_trace_log_path": result.get("trace_log_path") or str(rag_trace_log_path()),
+            "eval_run_log_path": result.get("eval_log_path") or str(eval_run_log_path()),
+        }
+    )
     st.subheader("Raw Usage And Cost")
     st.json({"usage": result.get("usage") or {}, "cost": result.get("cost") or {}})
 
@@ -135,6 +154,9 @@ with st.sidebar:
     st.header("RAG Settings")
     use_http_api = st.toggle("Call FastAPI endpoint", value=False)
     api_base_url = st.text_input("API base URL", value="http://127.0.0.1:8000", disabled=not use_http_api)
+    log_eval_run = st.toggle("Log as eval run", value=False)
+    eval_run_id = st.text_input("Eval run ID", value="", disabled=not log_eval_run)
+    expected_answer = st.text_area("Expected answer", value="", disabled=not log_eval_run)
     st.divider()
     st.write(
         {
@@ -168,7 +190,22 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving chunks and generating an answer..."):
             try:
-                result = _post_prompt(api_base_url, question) if use_http_api else answer_question(question)
+                eval_id = eval_run_id.strip() if log_eval_run else None
+                expected = expected_answer.strip() if log_eval_run else None
+                if use_http_api:
+                    result = _post_prompt(
+                        api_base_url,
+                        question,
+                        eval_run_id=eval_id,
+                        expected_answer=expected,
+                    )
+                else:
+                    result = answer_question(
+                        question,
+                        trace_source="streamlit",
+                        eval_run_id=eval_id,
+                        expected_answer=expected,
+                    )
             except (HTTPError, URLError, TimeoutError, RuntimeError) as exc:
                 st.error(str(exc))
                 st.stop()
