@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Medium Dataset Explorer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">M</div>
+          <div>
+            <h1>Medium Dataset Explorer</h1>
+            <p id="datasetStatus">Loading sample dataset...</p>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="datasetSelect">Dataset</label>
+          <select id="datasetSelect">
+            <option value="../data/medium-300-sample.csv">Sample: 300 articles</option>
+            <option value="../data/medium-english-50mb.csv">Full: medium-english-50mb.csv</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="fileInput">Open CSV</label>
+          <input id="fileInput" type="file" accept=".csv,text/csv" />
+        </div>
+
+        <div class="control-group">
+          <label for="searchInput">Search</label>
+          <input id="searchInput" type="search" placeholder="Title, body, author, tag, URL" />
+        </div>
+
+        <div class="control-group">
+          <label for="tagFilter">Tag</label>
+          <select id="tagFilter">
+            <option value="">All tags</option>
+          </select>
+        </div>
+
+        <div class="control-row">
+          <div class="control-group">
+            <label for="yearFilter">Year</label>
+            <select id="yearFilter">
+              <option value="">All</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="sortSelect">Sort</label>
+            <select id="sortSelect">
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="title">Title</option>
+              <option value="longest">Longest</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="stats-grid" aria-label="Dataset statistics">
+          <div>
+            <span id="totalCount">0</span>
+            <small>Articles</small>
+          </div>
+          <div>
+            <span id="visibleCount">0</span>
+            <small>Showing</small>
+          </div>
+          <div>
+            <span id="tagCount">0</span>
+            <small>Tags</small>
+          </div>
+          <div>
+            <span id="authorCount">0</span>
+            <small>Authors</small>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="overview">
+          <div>
+            <h2>Explore articles by topic, author, and date</h2>
+            <p>Search across the local Medium dataset and inspect article text without touching the RAG code.</p>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <span>Top Tags</span>
+              <small id="chartCaption">No data yet</small>
+            </div>
+            <div id="tagChart" class="tag-chart" aria-label="Top tags chart"></div>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="results-panel">
+            <div class="panel-header">
+              <h2>Articles</h2>
+              <span id="resultRange"></span>
+            </div>
+            <div id="articleList" class="article-list"></div>
+            <div class="pager">
+              <button id="prevPage" type="button">Previous</button>
+              <span id="pageLabel">Page 1</span>
+              <button id="nextPage" type="button">Next</button>
+            </div>
+          </div>
+
+          <article id="detailPanel" class="detail-panel">
+            <div class="empty-state">
+              <h2>Select an article</h2>
+              <p>Choose a result to view metadata, tags, article text, and the original Medium URL.</p>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <template id="articleTemplate">
+      <button class="article-row" type="button">
+        <span class="article-title"></span>
+        <span class="article-meta"></span>
+        <span class="article-tags"></span>
+      </button>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

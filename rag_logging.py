@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from api.config import CHUNK_SIZE, OVERLAP_RATIO, TOP_K
+from api.config import CHUNK_SIZE, MMR_ENABLED, MMR_LAMBDA, OVERLAP_RATIO, PINECONE_NAMESPACE, RETRIEVAL_CANDIDATE_K, TOP_K
 
 DEFAULT_LOG_DIR = Path(os.getenv("RAG_LOG_DIR", "logs"))
 DEFAULT_RAG_TRACE_LOG_PATH = DEFAULT_LOG_DIR / "rag_traces.jsonl"
@@ -30,6 +30,37 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False, default=str))
         handle.write("\n")
+
+
+def read_jsonl(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    records = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            raw_line = line.strip()
+            if not raw_line:
+                continue
+            try:
+                record = json.loads(raw_line)
+            except json.JSONDecodeError:
+                record = {
+                    "timestamp": "",
+                    "question": f"Invalid JSONL record on line {line_number}",
+                    "response": raw_line,
+                    "context": [],
+                    "augmented_prompt": {},
+                    "config": {},
+                    "parse_error": True,
+                }
+            record["_line_number"] = line_number
+            records.append(record)
+
+    records.reverse()
+    if limit is not None:
+        return records[:limit]
+    return records
 
 
 def context_for_log(context: list[dict[str, Any]], preview_chars: int = 240) -> list[dict[str, Any]]:
@@ -56,10 +87,22 @@ def augmented_prompt_for_log(result: dict[str, Any]) -> dict[str, str]:
 
 
 def config_for_log(top_k: int = TOP_K) -> dict[str, Any]:
+    namespace = os.getenv("PINECONE_NAMESPACE") or PINECONE_NAMESPACE
+    candidate_k = int(os.getenv("RETRIEVAL_CANDIDATE_K", str(RETRIEVAL_CANDIDATE_K)))
+    mmr_enabled = (os.getenv("MMR_ENABLED") or str(MMR_ENABLED)).strip().casefold() in {"1", "true", "yes", "on"}
+    try:
+        mmr_lambda = float(os.getenv("MMR_LAMBDA", str(MMR_LAMBDA)))
+    except ValueError:
+        mmr_lambda = MMR_LAMBDA
+    mmr_lambda = max(0.0, min(mmr_lambda, 1.0))
     return {
         "chunk_size": CHUNK_SIZE,
         "overlap_ratio": OVERLAP_RATIO,
         "top_k": top_k,
+        "retrieval_candidate_k": candidate_k,
+        "mmr_enabled": mmr_enabled,
+        "mmr_lambda": mmr_lambda,
+        "pinecone_namespace": namespace,
     }
 
 

@@ -16,10 +16,29 @@ dependencies = [
     "tiktoken>=0.13.0",
 ]
 
+[project.scripts]
+rag-dev = "dev:main"
+rag-api = "dev:start_api"
+rag-web = "dev:start_web"
+rag-explorer = "web_app.server:main"
+rag-all = "dev:start_all"
+
+[build-system]
+requires = ["setuptools>=80.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["dev", "main", "rag", "rag_logging", "rag_utils", "streamlit_app"]
+
+[tool.setuptools.packages.find]
+include = ["api*", "web_app*"]
+
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "ipython>=9.14.0",
     "pandas>=3.0.3",
+    "ragas>=0.4.3",
     "streamlit>=1.58.0",
     "uvicorn>=0.48.0",
 ]

@@ -5,16 +5,36 @@
 Run the Streamlit development interface:
 
 ```sh
-uv run streamlit run streamlit_app.py
+uv run rag-web
 ```
 
 By default the UI calls the local RAG function directly. To test the deployed API shape locally, start FastAPI in a second terminal:
 
 ```sh
-uv run uvicorn api.index:app --reload
+uv run rag-api
 ```
 
 Then enable `Call FastAPI endpoint` in the Streamlit sidebar.
+
+To start both the API and Streamlit app from one terminal:
+
+```sh
+uv run rag-all
+```
+
+Run the standalone Medium dataset explorer:
+
+```sh
+uv run rag-explorer
+```
+
+You can also use the grouped launcher:
+
+```sh
+uv run rag-dev api
+uv run rag-dev web
+uv run rag-dev all
+```
 
 The UI shows:
 
@@ -73,4 +93,49 @@ The CLI supports the same logging:
 
 ```sh
 uv run python rag.py "Your question" --eval-run-id smoke-2026-06-01 --expected-answer "Expected answer text"
+```
+
+## Reindexing
+
+The default Pinecone namespace is `medium-300-chunk800-overlap120-v2`. Rebuild that namespace after changing chunk text, chunk IDs, or metadata:
+
+```sh
+uv run python scripts/prepare_embeddings.py
+```
+
+Records use deterministic IDs in the form `medium-300:{article_id}:{chunk_index}`. The embedded chunk text includes title, authors, tags, and passage text. Retrieval queries more candidate chunks than the final prompt size, applies Maximal Marginal Relevance, and deduplicates results by article before sending context to the model.
+
+Tune retrieval with:
+
+```sh
+RETRIEVAL_CANDIDATE_K=20
+MMR_ENABLED=true
+MMR_LAMBDA=0.65
+```
+
+Higher `MMR_LAMBDA` favors relevance; lower values favor diversity.
+
+## AI Benchmark
+
+Generate grounded benchmark questions from `data/medium-300-sample.csv`:
+
+```sh
+uv run python scripts/generate_ai_benchmark.py --articles 30 --cases-per-article 2
+```
+
+This writes JSONL cases to `eval/medium_300_ai_benchmark.jsonl`. Each case includes the expected source article, question, expected answer, and supporting evidence quote.
+
+Run the benchmark against the current RAG pipeline:
+
+```sh
+uv run python scripts/run_ai_benchmark.py --top-k 7
+```
+
+This writes detailed results to `eval/medium_300_ai_benchmark_results.jsonl` and aggregate metrics to `eval/medium_300_ai_benchmark_results.summary.json`, including answer accuracy, grounded rate, mean judge score, and retrieval hit rate.
+
+For a quick smoke test:
+
+```sh
+uv run python scripts/generate_ai_benchmark.py --articles 2 --cases-per-article 1
+uv run python scripts/run_ai_benchmark.py --limit 2
 ```

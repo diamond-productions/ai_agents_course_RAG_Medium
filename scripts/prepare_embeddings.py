@@ -20,6 +20,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pinecone import Pinecone, ServerlessSpec
 
+from api.config import PINECONE_NAMESPACE as DEFAULT_PINECONE_NAMESPACE
+from rag_utils import build_chunk_text
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -27,6 +30,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "4UHRUIN-text-embedding-3-small")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "medium-articles")
+PINECONE_NAMESPACE = os.getenv("PINECONE_NAMESPACE") or DEFAULT_PINECONE_NAMESPACE
 PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
 EMBEDDING_DIMENSIONS = 1536
@@ -50,14 +54,16 @@ for idx, row in df.iterrows():
     text = str(row.get("text", "")).strip()
     if not text:
         continue
-    # Prepend title so it is always present in the first chunk
-    page_content = f"{title}\n\n{text}" if title else text
+    authors = str(row.get("authors", "")).strip()
+    tags = str(row.get("tags", "")).strip()
+    page_content = build_chunk_text(title=title, authors=authors, tags=tags, text=text)
     metadata = {
+        "article_id": str(idx),
         "title": title,
         "url": str(row.get("url", "")),
-        "authors": str(row.get("authors", "")),
+        "authors": authors,
         "timestamp": str(row.get("timestamp", "")),
-        "tags": str(row.get("tags", "")),
+        "tags": tags,
     }
     docs.append(Document(page_content=page_content, metadata=metadata))
 
@@ -82,6 +88,14 @@ splitter = RecursiveCharacterTextSplitter(
 )
 
 splits = splitter.split_documents(docs)
+article_chunk_counts: dict[str, int] = {}
+for split in splits:
+    article_id = str(split.metadata["article_id"])
+    chunk_index = article_chunk_counts.get(article_id, 0)
+    article_chunk_counts[article_id] = chunk_index + 1
+    split.metadata["chunk_index"] = chunk_index
+    split.metadata["chunk_id"] = f"{article_id}-{chunk_index:04d}"
+
 print(
     f"Split into {len(splits)} chunks  (chunk_size={CHUNK_SIZE} tokens, overlap={CHUNK_OVERLAP})."
 )
@@ -137,10 +151,11 @@ def batched(iterable, n):
 
 records = [
     {
-        "id": f"chunk-{i}",
+        "id": f"medium-300:{splits[i].metadata['article_id']}:{splits[i].metadata['chunk_index']:04d}",
         "values": vectors[i],
         "metadata": {
             **splits[i].metadata,
+            "dataset": "medium-300-sample",
             "text": splits[i].page_content,  # store chunk text for retrieval
         },
     }
@@ -149,10 +164,10 @@ records = [
 
 total_upserted = 0
 for batch in batched(records, UPSERT_BATCH_SIZE):
-    response = index.upsert(vectors=list(batch))
+    response = index.upsert(vectors=list(batch), namespace=PINECONE_NAMESPACE)
     total_upserted += response.upserted_count
     print(f"  Upserted {total_upserted}/{len(records)} vectors ...")
 
-print(f"\nDone. {total_upserted} vectors upserted into '{PINECONE_INDEX_NAME}'.")
+print(f"\nDone. {total_upserted} vectors upserted into '{PINECONE_INDEX_NAME}' namespace '{PINECONE_NAMESPACE}'.")
 stats = index.describe_index_stats()
 print(f"Index stats: {stats}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,9 +23,12 @@ from api.config import (
     EMBEDDING_COST_PER_1M_TOKENS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
+    MMR_ENABLED,
+    MMR_LAMBDA,
     OVERLAP_RATIO,
     PINECONE_INDEX_NAME,
     PINECONE_NAMESPACE,
+    RETRIEVAL_CANDIDATE_K,
     SAMPLE_DATA_PATH,
     SYSTEM_PROMPT,
     TOP_K,
@@ -36,6 +40,7 @@ load_dotenv()
 PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
 TEXT_KEY = "text"
+DATASET_NAME = "medium-300-sample"
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,36 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _env_or_default(name: str, default: str) -> str:
+    value = os.getenv(name)
+    return default if value in (None, "") else value
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return default
+    return raw.strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(value, maximum))
+
+
+def pinecone_namespace() -> str:
+    return _env_or_default("PINECONE_NAMESPACE", PINECONE_NAMESPACE)
+
+
 def build_embeddings() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(
         model=os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL),
@@ -88,7 +123,7 @@ def build_llm() -> ChatOpenAI:
 
 def build_pinecone_index(index_name: str | None = None):
     pc = Pinecone(api_key=_require_env("PINECONE_API_KEY"))
-    name = index_name or os.getenv("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME)
+    name = index_name or _env_or_default("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME)
     if not pc.has_index(name):
         pc.create_index(
             name=name,
@@ -97,9 +132,24 @@ def build_pinecone_index(index_name: str | None = None):
             metric="cosine",
             spec=ServerlessSpec(cloud=PINECONE_CLOUD, region=PINECONE_REGION),
             deletion_protection="disabled",
-            tags={"dataset": "medium-300-sample"},
+            tags={"dataset": DATASET_NAME},
         )
     return pc.Index(name)
+
+
+def build_chunk_text(*, title: str, authors: str = "", tags: str = "", text: str) -> str:
+    metadata_lines = []
+    if title:
+        metadata_lines.append(f"Title: {title}")
+    if authors:
+        metadata_lines.append(f"Authors: {authors}")
+    if tags:
+        metadata_lines.append(f"Tags: {tags}")
+
+    body = text.strip()
+    if metadata_lines:
+        return "\n".join(metadata_lines) + f"\n\nPassage:\n{body}"
+    return body
 
 
 def load_sample_documents(path: str = SAMPLE_DATA_PATH) -> list[Document]:
@@ -111,7 +161,9 @@ def load_sample_documents(path: str = SAMPLE_DATA_PATH) -> list[Document]:
             if not text:
                 continue
 
-            page_content = f"{title}\n\n{text}" if title else text
+            authors = row.get("authors", "").strip()
+            tags = row.get("tags", "").strip()
+            page_content = build_chunk_text(title=title, authors=authors, tags=tags, text=text)
             docs.append(
                 Document(
                     page_content=page_content,
@@ -119,9 +171,9 @@ def load_sample_documents(path: str = SAMPLE_DATA_PATH) -> list[Document]:
                         "article_id": str(article_id),
                         "title": title,
                         "url": row.get("url", ""),
-                        "authors": row.get("authors", ""),
+                        "authors": authors,
                         "timestamp": row.get("timestamp", ""),
-                        "tags": row.get("tags", ""),
+                        "tags": tags,
                     },
                 )
             )
@@ -136,8 +188,13 @@ def split_documents(docs: list[Document]) -> list[Document]:
         separators=["\n\n", "\n", " ", ""],
     )
     splits = splitter.split_documents(docs)
-    for chunk_id, doc in enumerate(splits):
-        doc.metadata["chunk_id"] = str(chunk_id)
+    article_chunk_counts: dict[str, int] = {}
+    for doc in splits:
+        article_id = str(doc.metadata["article_id"])
+        chunk_index = article_chunk_counts.get(article_id, 0)
+        article_chunk_counts[article_id] = chunk_index + 1
+        doc.metadata["chunk_index"] = chunk_index
+        doc.metadata["chunk_id"] = f"{article_id}-{chunk_index:04d}"
     return splits
 
 
@@ -149,7 +206,7 @@ def approx_token_count(text: str) -> int:
 def index_sample_dataset(force: bool = False) -> int:
     """Index only data/medium-300-sample.csv into Pinecone."""
     index = build_pinecone_index()
-    namespace = os.getenv("PINECONE_NAMESPACE", PINECONE_NAMESPACE)
+    namespace = pinecone_namespace()
     stats = index.describe_index_stats()
     existing_count = _namespace_count(stats, namespace)
     if existing_count and not force:
@@ -160,16 +217,16 @@ def index_sample_dataset(force: bool = False) -> int:
     vectors = embeddings.embed_documents([doc.page_content for doc in docs])
     records = []
     for doc, vector in zip(docs, vectors, strict=True):
-        chunk_id = doc.metadata["chunk_id"]
         article_id = doc.metadata["article_id"]
+        chunk_index = int(doc.metadata["chunk_index"])
         records.append(
             {
-                "id": f"sample-{article_id}-{chunk_id}",
+                "id": f"medium-300:{article_id}:{chunk_index:04d}",
                 "values": vector,
                 "metadata": {
                     **doc.metadata,
                     TEXT_KEY: doc.page_content,
-                    "dataset": "medium-300-sample",
+                    "dataset": DATASET_NAME,
                 },
             }
         )
@@ -193,24 +250,136 @@ def _namespace_count(stats: Any, namespace: str) -> int:
     return int(stats_dict.get("total_vector_count") or 0)
 
 
+def _match_metadata(match: Any) -> dict[str, Any]:
+    metadata = match.metadata if hasattr(match, "metadata") else match.get("metadata", {})
+    return metadata or {}
+
+
+def _match_values(match: Any) -> list[float]:
+    values = match.values if hasattr(match, "values") else match.get("values", [])
+    return [float(value) for value in values or []]
+
+
+def _article_key(match: Any) -> str:
+    metadata = _match_metadata(match)
+    return str(metadata.get("article_id") or metadata.get("title") or metadata.get("id") or "")
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if not left_norm or not right_norm:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
+def _dedupe_matches_by_article(matches: list[Any], limit: int) -> list[Any]:
+    deduped: list[Any] = []
+    seen_articles: set[str] = set()
+    for match in matches:
+        article_key = _article_key(match)
+        if article_key and article_key in seen_articles:
+            continue
+        if article_key:
+            seen_articles.add(article_key)
+        deduped.append(match)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _select_mmr_matches(
+    *,
+    matches: list[Any],
+    query_vector: list[float],
+    limit: int,
+    lambda_mult: float,
+) -> list[Any]:
+    candidates = [match for match in matches if _match_values(match)]
+    if not candidates:
+        return _dedupe_matches_by_article(matches, limit)
+
+    selected: list[Any] = []
+    selected_vectors: list[list[float]] = []
+    selected_articles: set[str] = set()
+    remaining = candidates.copy()
+
+    while remaining and len(selected) < limit:
+        best_match = None
+        best_score = float("-inf")
+        for match in remaining:
+            article_key = _article_key(match)
+            if article_key and article_key in selected_articles:
+                continue
+
+            vector = _match_values(match)
+            relevance = _cosine_similarity(query_vector, vector)
+            redundancy = max(
+                (_cosine_similarity(vector, selected_vector) for selected_vector in selected_vectors),
+                default=0.0,
+            )
+            mmr_score = lambda_mult * relevance - (1.0 - lambda_mult) * redundancy
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_match = match
+
+        if best_match is None:
+            break
+
+        remaining.remove(best_match)
+        selected.append(best_match)
+        selected_vectors.append(_match_values(best_match))
+        article_key = _article_key(best_match)
+        if article_key:
+            selected_articles.add(article_key)
+
+    if len(selected) < limit:
+        selected_ids = {id(match) for match in selected}
+        for match in _dedupe_matches_by_article(matches, limit):
+            if id(match) in selected_ids:
+                continue
+            selected.append(match)
+            if len(selected) >= limit:
+                break
+
+    return selected[:limit]
+
+
 def retrieve_context(question: str, top_k: int = TOP_K) -> list[RetrievedContext]:
     embeddings = build_embeddings()
     index = build_pinecone_index()
-    namespace = os.getenv("PINECONE_NAMESPACE", PINECONE_NAMESPACE)
+    namespace = pinecone_namespace()
+    candidate_k = max(top_k, int(os.getenv("RETRIEVAL_CANDIDATE_K", str(RETRIEVAL_CANDIDATE_K))))
+    mmr_enabled = _bool_env("MMR_ENABLED", MMR_ENABLED)
+    mmr_lambda = _clamp(_float_env("MMR_LAMBDA", MMR_LAMBDA), 0.0, 1.0)
     query_vector = embeddings.embed_query(question)
     kwargs: dict[str, Any] = {
         "vector": query_vector,
-        "top_k": top_k,
+        "top_k": candidate_k,
         "include_metadata": True,
+        "include_values": mmr_enabled,
     }
     if namespace:
         kwargs["namespace"] = namespace
     result = index.query(**kwargs)
     matches = result.matches if hasattr(result, "matches") else result.get("matches", [])
+    matches = list(matches)
+    if mmr_enabled:
+        matches = _select_mmr_matches(
+            matches=matches,
+            query_vector=[float(value) for value in query_vector],
+            limit=top_k,
+            lambda_mult=mmr_lambda,
+        )
+    else:
+        matches = _dedupe_matches_by_article(matches, top_k)
 
     contexts: list[RetrievedContext] = []
     for match in matches:
-        metadata = match.metadata if hasattr(match, "metadata") else match.get("metadata", {})
+        metadata = _match_metadata(match)
         score = match.score if hasattr(match, "score") else match.get("score", 0.0)
         article_id = metadata.get("article_id") or metadata.get("id") or ""
         contexts.append(
@@ -345,10 +514,13 @@ def model_metadata(message: Any, top_k: int) -> dict[str, Any]:
         "embedding_model": os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL),
         "embedding_dimensions": int(os.getenv("EMBEDDING_DIMENSIONS", str(EMBEDDING_DIMENSIONS))),
         "api_base": os.getenv("LLMOD_API_BASE", DEFAULT_BASE_URL),
-        "pinecone_index": os.getenv("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME),
-        "pinecone_namespace": os.getenv("PINECONE_NAMESPACE", PINECONE_NAMESPACE),
+        "pinecone_index": _env_or_default("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME),
+        "pinecone_namespace": pinecone_namespace(),
         "chunk_size": CHUNK_SIZE,
         "overlap_ratio": OVERLAP_RATIO,
+        "retrieval_candidate_k": int(os.getenv("RETRIEVAL_CANDIDATE_K", str(RETRIEVAL_CANDIDATE_K))),
+        "mmr_enabled": _bool_env("MMR_ENABLED", MMR_ENABLED),
+        "mmr_lambda": _clamp(_float_env("MMR_LAMBDA", MMR_LAMBDA), 0.0, 1.0),
         "top_k": top_k,
         "finish_reason": response_metadata.get("finish_reason"),
         "system_fingerprint": response_metadata.get("system_fingerprint"),

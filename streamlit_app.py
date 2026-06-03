@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from api.config import CHAT_MODEL, CHUNK_SIZE, EMBEDDING_MODEL, OVERLAP_RATIO, TOP_K
-from rag_logging import eval_run_log_path, rag_trace_log_path
+from rag_logging import eval_run_log_path, rag_trace_log_path, read_jsonl
 from rag_utils import answer_question
 
 
@@ -150,6 +150,102 @@ def _show_metadata(result: dict[str, Any]) -> None:
     st.json({"usage": result.get("usage") or {}, "cost": result.get("cost") or {}})
 
 
+def _record_matches_search(record: dict[str, Any], query: str) -> bool:
+    if not query:
+        return True
+    needle = query.casefold()
+    searchable = [
+        record.get("timestamp", ""),
+        record.get("question", ""),
+        record.get("response", ""),
+        record.get("run_id", ""),
+        record.get("source", ""),
+        record.get("expected_answer", ""),
+    ]
+    searchable.extend(str(item.get("title", "")) for item in record.get("context") or [])
+    return needle in "\n".join(str(value) for value in searchable).casefold()
+
+
+def _show_logged_context(context: list[dict[str, Any]], key_prefix: str) -> None:
+    if not context:
+        st.info("No context recorded.")
+        return
+
+    for index, item in enumerate(context, start=1):
+        title = item.get("title") or "Untitled"
+        score = _format_number(item.get("score"))
+        with st.expander(f"{index}. {title}  |  score {score}", expanded=index == 1):
+            st.write({"article_id": item.get("article_id"), "score": item.get("score")})
+            st.text_area(
+                "Chunk preview",
+                item.get("chunk_preview", ""),
+                height=140,
+                key=f"{key_prefix}-context-{index}",
+            )
+
+
+def _show_log_record(record: dict[str, Any], key_prefix: str) -> None:
+    cols = st.columns(4)
+    cols[0].caption(record.get("timestamp") or "No timestamp")
+    cols[1].caption(f"source: {record.get('source', 'n/a')}")
+    cols[2].caption(f"line: {record.get('_line_number', 'n/a')}")
+    cols[3].caption(f"run: {record.get('run_id', 'n/a')}")
+
+    st.markdown("**Question**")
+    st.write(record.get("question", ""))
+    st.markdown("**Response**")
+    st.write(record.get("response", ""))
+
+    if record.get("expected_answer") is not None:
+        st.markdown("**Expected Answer**")
+        st.write(record.get("expected_answer", ""))
+    if record.get("evaluation") is not None:
+        st.markdown("**Evaluation**")
+        st.json(record.get("evaluation"))
+
+    detail_tabs = st.tabs(["Context", "Prompt", "Config", "Raw"])
+    with detail_tabs[0]:
+        _show_logged_context(record.get("context") or [], key_prefix)
+    with detail_tabs[1]:
+        prompt = record.get("augmented_prompt") or {}
+        st.text_area("System", prompt.get("system", ""), height=160, key=f"{key_prefix}-system")
+        st.text_area("User", prompt.get("user", ""), height=240, key=f"{key_prefix}-user")
+    with detail_tabs[2]:
+        st.json(record.get("config") or {})
+    with detail_tabs[3]:
+        st.json(record)
+
+
+def _show_log_browser() -> None:
+    st.header("Conversation Logs")
+    log_source = st.radio(
+        "Log source",
+        ["RAG traces", "Eval runs"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    path = rag_trace_log_path() if log_source == "RAG traces" else eval_run_log_path()
+
+    cols = st.columns([2, 1])
+    search = cols[0].text_input("Search logs", placeholder="Question, answer, title, source, run ID")
+    limit = cols[1].number_input("Recent records", min_value=1, max_value=500, value=50, step=10)
+
+    st.caption(str(path))
+    records = [record for record in read_jsonl(path, limit=int(limit)) if _record_matches_search(record, search)]
+    if not records:
+        st.info("No matching log records found.")
+        return
+
+    st.caption(f"Showing {len(records)} record(s), newest first.")
+    key_slug = "rag" if log_source == "RAG traces" else "eval"
+    for index, record in enumerate(records):
+        timestamp = record.get("timestamp") or "No timestamp"
+        question = record.get("question") or "Untitled record"
+        label = f"{timestamp} | {question[:100]}"
+        with st.expander(label, expanded=index == 0):
+            _show_log_record(record, key_prefix=f"log-{key_slug}-{record.get('_line_number', index)}")
+
+
 with st.sidebar:
     st.header("RAG Settings")
     use_http_api = st.toggle("Call FastAPI endpoint", value=False)
@@ -216,14 +312,22 @@ if question:
     st.session_state.last_result = result
     st.session_state.messages.append({"role": "assistant", "content": answer})
 
-if st.session_state.last_result:
-    result = st.session_state.last_result
-    tab_context, tab_prompt, tab_metadata, tab_raw = st.tabs(["Sources", "Prompt", "Metadata", "Raw JSON"])
-    with tab_context:
-        _show_context(result.get("context") or [])
-    with tab_prompt:
-        _show_prompt(result)
-    with tab_metadata:
-        _show_metadata(result)
-    with tab_raw:
-        st.json(result)
+current_tab, history_tab = st.tabs(["Current Chat", "Log Review"])
+
+with current_tab:
+    if st.session_state.last_result:
+        result = st.session_state.last_result
+        tab_context, tab_prompt, tab_metadata, tab_raw = st.tabs(["Sources", "Prompt", "Metadata", "Raw JSON"])
+        with tab_context:
+            _show_context(result.get("context") or [])
+        with tab_prompt:
+            _show_prompt(result)
+        with tab_metadata:
+            _show_metadata(result)
+        with tab_raw:
+            st.json(result)
+    else:
+        st.info("Ask a question to inspect the current answer details.")
+
+with history_tab:
+    _show_log_browser()
