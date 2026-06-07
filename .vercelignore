@@ -1,0 +1,11 @@
+data/
+eval/
+logs/
+tests/
+notebooks/
+.agents/
+.venv/
+.uv-cache/
+__pycache__/
+*.pyc
+*.ipynb
