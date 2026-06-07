@@ -8,7 +8,9 @@ Run the Streamlit development interface:
 uv run rag-web
 ```
 
-By default the UI calls the local RAG function directly. To test the deployed API shape locally, start FastAPI in a second terminal:
+By default the UI calls the local RAG function directly with `configs/production.yaml` unless `RAG_EXPERIMENT_CONFIG` is already set. To test the deployed API, enable `Call FastAPI endpoint` in the sidebar; the default URL is `https://ozd-ai-agents-course-rag-medium.vercel.app`.
+
+To test a local FastAPI server instead, start FastAPI in a second terminal:
 
 ```sh
 uv run rag-api

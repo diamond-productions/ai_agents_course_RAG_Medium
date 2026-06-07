@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import streamlit as st
 
+os.environ.setdefault("RAG_EXPERIMENT_CONFIG", "configs/production.yaml")
+
 from rag_logging import eval_run_log_path, rag_trace_log_path, read_jsonl
-from rag_utils import answer_question, get_default_config
+from rag_utils import answer_question
 
 
 st.set_page_config(page_title="Medium RAG Chat", page_icon="M", layout="wide")
@@ -80,6 +83,8 @@ def _unique_articles(context: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _show_usage(result: dict[str, Any]) -> None:
     usage = result.get("usage") or {}
     cost = result.get("cost") or {}
+    if not usage and not cost:
+        return
     cols = st.columns(4)
     cols[0].metric("Input tokens", _format_number(usage.get("input_tokens")))
     cols[1].metric("Output tokens", _format_number(usage.get("output_tokens")))
@@ -133,20 +138,6 @@ def _show_prompt(result: dict[str, Any]) -> None:
     st.subheader("Augmented Prompt")
     st.text_area("System", augmented_prompt.get("System", ""), height=180)
     st.text_area("User", augmented_prompt.get("User", ""), height=300)
-
-
-def _show_metadata(result: dict[str, Any]) -> None:
-    st.subheader("Model Metadata")
-    st.json(result.get("metadata") or {})
-    st.subheader("Log Files")
-    st.json(
-        {
-            "rag_trace_log_path": result.get("trace_log_path") or str(rag_trace_log_path()),
-            "eval_run_log_path": result.get("eval_log_path") or str(eval_run_log_path()),
-        }
-    )
-    st.subheader("Raw Usage And Cost")
-    st.json({"usage": result.get("usage") or {}, "cost": result.get("cost") or {}})
 
 
 def _record_matches_search(record: dict[str, Any], query: str) -> bool:
@@ -246,22 +237,16 @@ def _show_log_browser() -> None:
 
 
 with st.sidebar:
-    current_config = get_default_config()
-    st.header("RAG Settings")
+    st.header("Chat Settings")
     use_http_api = st.toggle("Call FastAPI endpoint", value=False)
-    api_base_url = st.text_input("API base URL", value="http://127.0.0.1:8000", disabled=not use_http_api)
+    api_base_url = st.text_input(
+        "API base URL",
+        value="https://ozd-ai-agents-course-rag-medium.vercel.app",
+        disabled=not use_http_api,
+    )
     log_eval_run = st.toggle("Log as eval run", value=False)
     eval_run_id = st.text_input("Eval run ID", value="", disabled=not log_eval_run)
     expected_answer = st.text_area("Expected answer", value="", disabled=not log_eval_run)
-    st.divider()
-    st.write(
-        {
-            **current_config.config_summary(),
-            "chat_model": current_config.generation.chat_model,
-            "embedding_model": current_config.embedding.model,
-        }
-    )
-    st.caption("Default costs: gpt-5-mini input $0.25/M, output $2.00/M; embeddings $0.02/M.")
 
 
 st.title("Medium RAG Chat")
@@ -315,13 +300,11 @@ current_tab, history_tab = st.tabs(["Current Chat", "Log Review"])
 with current_tab:
     if st.session_state.last_result:
         result = st.session_state.last_result
-        tab_context, tab_prompt, tab_metadata, tab_raw = st.tabs(["Sources", "Prompt", "Metadata", "Raw JSON"])
+        tab_context, tab_prompt, tab_raw = st.tabs(["Sources", "Prompt", "Raw JSON"])
         with tab_context:
             _show_context(result.get("context") or [])
         with tab_prompt:
             _show_prompt(result)
-        with tab_metadata:
-            _show_metadata(result)
         with tab_raw:
             st.json(result)
     else:
