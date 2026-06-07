@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
+app = "api.index:app"
 rag-dev = "dev:main"
 rag-api = "dev:start_api"
 rag-web = "dev:start_web"

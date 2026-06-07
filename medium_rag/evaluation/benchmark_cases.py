@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from medium_rag.config import RagExperimentConfig
 from medium_rag.data import load_medium_articles
-from medium_rag.generation import build_llm
+from medium_rag.evaluation.judge import build_benchmark_llm
 from medium_rag.types import Article
 
 DEFAULT_CASE_COUNT = 25
@@ -132,7 +132,7 @@ def generate_benchmark_cases(
             ("user", USER_PROMPT),
         ]
     )
-    chain = prompt | build_llm(config.generation).with_structured_output(GeneratedBenchmarkCases)
+    chain = prompt | build_benchmark_llm(config.generation).with_structured_output(GeneratedBenchmarkCases)
     generated = chain.invoke({"case_count": case_count, "articles_json": articles_json})
     cases = generated.cases if isinstance(generated, GeneratedBenchmarkCases) else []
 

@@ -138,7 +138,7 @@ Generate an AI-curated requirement-focused benchmark suite from `data/medium-300
 uv run python scripts/generate_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --case-count 25
 ```
 
-This calls the configured chat model using `LLMOD_API_KEY` and writes JSONL cases to `eval/medium_300_ai_benchmark.jsonl` for the assignment query types: precise fact retrieval, multi-result topic listing, key idea summary, recommendation with evidence, and unanswerable guardrail cases.
+This uses `OPENROUTER_API_KEY` and the selected `OPENROUTER_MODEL` to write JSONL cases to `eval/medium_300_ai_benchmark.jsonl` for the assignment query types: precise fact retrieval, multi-result topic listing, key idea summary, recommendation with evidence, and unanswerable guardrail cases.
 
 Each case includes the expected source article when applicable, question, expected answer, supporting evidence quote, `question_type`, and `expected_titles` for multi-result listing retrieval diagnostics.
 
@@ -148,7 +148,7 @@ Run the benchmark against the current RAG pipeline:
 uv run python scripts/run_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --output eval/dense_mmr_results.jsonl
 ```
 
-This uses `OPENROUTER_API_KEY` for the benchmark judge. Override the judge model or endpoint with `OPENROUTER_MODEL` and `OPENROUTER_API_BASE`. It writes detailed results to the selected `--output` path and aggregate metrics to the matching `.summary.json` path. Metrics include answer accuracy, context faithfulness/grounded rate, mean judge score, Hit@1/3/5/K, MRR@K, Recall@K, expected-title recall for listing cases, and per-question-type metrics.
+This also uses `OPENROUTER_API_KEY` and the selected `OPENROUTER_MODEL` for the benchmark judge. Override the endpoint with `OPENROUTER_API_BASE`. It writes detailed results to the selected `--output` path and aggregate metrics to the matching `.summary.json` path. Metrics include answer accuracy, context faithfulness/grounded rate, mean judge score, Hit@1/3/5/K, MRR@K, Recall@K, expected-title recall for listing cases, and per-question-type metrics.
 
 For `multi_result_topic_listing`, answer correctness is based on returning exactly 3 distinct retrieved titles that are relevant to the requested topic. The AI-curated `expected_titles` are used only to diagnose retrieval recall, not as the only valid answer set.
 

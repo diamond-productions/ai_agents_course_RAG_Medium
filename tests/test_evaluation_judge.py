@@ -26,6 +26,18 @@ class FakeStandardChain:
         return self.result
 
 
+class FlakyStandardChain:
+    def __init__(self, result: JudgeResult):
+        self.result = result
+        self.calls = 0
+
+    def invoke(self, payload):
+        self.calls += 1
+        if self.calls == 1:
+            raise ValueError("score must be less than or equal to 1")
+        return self.result
+
+
 def test_normalize_title_removes_bullets_quotes_and_case() -> None:
     assert normalize_title("  1. “User Experience Design Process.” ") == "user experience design process"
 
@@ -134,3 +146,20 @@ def test_standard_judge_uses_faithful_as_grounded_alias() -> None:
     assert evaluation["answer_correct"] is True
     assert evaluation["faithful"] is False
     assert evaluation["grounded"] is False
+
+
+def test_standard_judge_retries_schema_failure_once() -> None:
+    chain = FlakyStandardChain(
+        JudgeResult(answer_correct=True, faithful=True, score=1.0, rationale="Valid retry.")
+    )
+
+    evaluation = judge_answer(
+        chain,
+        {"question": "Q", "expected_answer": "A", "evidence_quote": "A"},
+        "A",
+        [{"title": "Title", "chunk": "A"}],
+    )
+
+    assert chain.calls == 2
+    assert evaluation["answer_correct"] is True
+    assert evaluation["score"] == 1.0

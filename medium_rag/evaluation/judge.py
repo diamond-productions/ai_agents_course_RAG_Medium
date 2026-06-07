@@ -11,10 +11,18 @@ from pydantic import BaseModel, Field
 from medium_rag.config import GenerationConfig
 
 DEFAULT_OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
-DEFAULT_OPENROUTER_JUDGE_MODEL = "openai/gpt-4o-mini"
+DEFAULT_OPENROUTER_JUDGE_MODEL = "deepseek/deepseek-v4-flash"
 
 JUDGE_SYSTEM_PROMPT = """You are a strict evaluator for RAG answers.
-Judge answer correctness against the expected answer and evidence. Judge faithfulness against the retrieved context only."""
+Judge answer correctness against the expected answer and evidence. Judge faithfulness against the retrieved context only.
+
+Return exactly this structured object:
+- answer_correct: boolean
+- faithful: boolean
+- score: number from 0.0 to 1.0 inclusive. Never return a score below 0.0 or above 1.0.
+- rationale: short string
+
+Use 1.0 for a fully correct and faithful answer, 0.5 for a partially correct answer, and 0.0 for an incorrect or unsupported answer."""
 
 JUDGE_USER_PROMPT = """Question:
 {question}
@@ -33,7 +41,25 @@ Model answer:
 """
 
 LISTING_JUDGE_SYSTEM_PROMPT = """You are a strict evaluator for RAG multi-result listing answers.
-Use only the retrieved context to judge title relevance and answer faithfulness."""
+Use only the retrieved context to judge title relevance and answer faithfulness.
+
+Return exactly this structured object:
+- returned_titles: list of strings
+- title_count_ok: boolean
+- titles_relevant: boolean
+- faithful: boolean
+- score: number from 0.0 to 1.0 inclusive. Never return a score below 0.0 or above 1.0.
+- title_relevance: list of objects with title, relevant, and rationale
+- rationale: short string
+
+Use 1.0 for a fully valid, relevant, and faithful listing answer, 0.5 for a partially valid answer, and 0.0 for an invalid or unsupported answer."""
+
+REPAIR_USER_PROMPT = """The previous evaluation response did not satisfy the required schema.
+
+Validation error:
+{error}
+
+Re-evaluate the same answer and return only a valid structured object that satisfies every field type and constraint. The score must be between 0.0 and 1.0 inclusive."""
 
 LISTING_JUDGE_USER_PROMPT = """Question:
 {question}
@@ -49,9 +75,15 @@ Return the article titles the model intended as its final answer. Then judge whe
 
 
 class JudgeResult(BaseModel):
-    answer_correct: bool = Field(description="Whether the answer captures the expected answer.")
-    faithful: bool = Field(description="Whether every factual claim in the answer is supported by retrieved context.")
-    score: float = Field(ge=0.0, le=1.0, description="Overall answer quality from 0 to 1.")
+    answer_correct: bool = Field(
+        description="Whether the answer captures the expected answer."
+    )
+    faithful: bool = Field(
+        description="Whether every factual claim in the answer is supported by retrieved context."
+    )
+    score: float = Field(
+        ge=0.0, le=1.0, description="Overall answer quality from 0 to 1."
+    )
     rationale: str = Field(description="A short explanation of the judgment.")
 
 
@@ -62,12 +94,24 @@ class TitleRelevance(BaseModel):
 
 
 class ListingJudgeResult(BaseModel):
-    returned_titles: list[str] = Field(description="Article titles the model returned as its final answer.")
-    title_count_ok: bool = Field(description="Whether the model returned exactly three article titles.")
-    titles_relevant: bool = Field(description="Whether every returned title is relevant to the question.")
-    faithful: bool = Field(description="Whether every factual claim is supported by retrieved context.")
-    score: float = Field(ge=0.0, le=1.0, description="Overall listing answer quality from 0 to 1.")
-    title_relevance: list[TitleRelevance] = Field(description="Per-title relevance judgments.")
+    returned_titles: list[str] = Field(
+        description="Article titles the model returned as its final answer."
+    )
+    title_count_ok: bool = Field(
+        description="Whether the model returned exactly three article titles."
+    )
+    titles_relevant: bool = Field(
+        description="Whether every returned title is relevant to the question."
+    )
+    faithful: bool = Field(
+        description="Whether every factual claim is supported by retrieved context."
+    )
+    score: float = Field(
+        ge=0.0, le=1.0, description="Overall listing answer quality from 0 to 1."
+    )
+    title_relevance: list[TitleRelevance] = Field(
+        description="Per-title relevance judgments."
+    )
     rationale: str = Field(description="A short explanation of the judgment.")
 
 
@@ -78,12 +122,15 @@ def _require_env(name: str) -> str:
     return value
 
 
-def build_judge_llm(config: GenerationConfig) -> ChatOpenAI:
+def build_benchmark_llm(config: GenerationConfig) -> ChatOpenAI:
     return ChatOpenAI(
         model=os.getenv("OPENROUTER_MODEL") or DEFAULT_OPENROUTER_JUDGE_MODEL,
         api_key=_require_env("OPENROUTER_API_KEY"),
         base_url=os.getenv("OPENROUTER_API_BASE") or DEFAULT_OPENROUTER_API_BASE,
     )
+
+
+build_judge_llm = build_benchmark_llm
 
 
 def normalize_title(value: str) -> str:
@@ -118,7 +165,7 @@ def build_judge_chain(config: GenerationConfig) -> Any:
             ("user", JUDGE_USER_PROMPT),
         ]
     )
-    return prompt | build_judge_llm(config).with_structured_output(JudgeResult)
+    return prompt | build_benchmark_llm(config).with_structured_output(JudgeResult)
 
 
 def build_listing_judge_chain(config: GenerationConfig) -> Any:
@@ -128,7 +175,23 @@ def build_listing_judge_chain(config: GenerationConfig) -> Any:
             ("user", LISTING_JUDGE_USER_PROMPT),
         ]
     )
-    return prompt | build_judge_llm(config).with_structured_output(ListingJudgeResult)
+    return prompt | build_benchmark_llm(config).with_structured_output(
+        ListingJudgeResult
+    )
+
+
+def _invoke_with_schema_retry(chain: Any, payload: dict[str, Any]) -> Any:
+    try:
+        return chain.invoke(payload)
+    except Exception as error:
+        repaired_payload = {
+            **payload,
+            "actual_answer": (
+                f"{payload.get('actual_answer', '')}\n\n"
+                f"{REPAIR_USER_PROMPT.format(error=error)}"
+            ),
+        }
+        return chain.invoke(repaired_payload)
 
 
 def judge_answer(
@@ -137,7 +200,8 @@ def judge_answer(
     actual_answer: str,
     retrieved_context: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    judgment = judge_chain.invoke(
+    judgment = _invoke_with_schema_retry(
+        judge_chain,
         {
             "question": case["question"],
             "expected_answer": case["expected_answer"],
@@ -173,7 +237,8 @@ def judge_listing_answer(
     actual_answer: str,
     retrieved_context: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    judgment = judge_chain.invoke(
+    judgment = _invoke_with_schema_retry(
+        judge_chain,
         {
             "question": case["question"],
             "retrieved_context": format_retrieved_context(retrieved_context),
@@ -184,7 +249,9 @@ def judge_listing_answer(
         raise TypeError(f"Expected ListingJudgeResult, got {type(judgment).__name__}")
 
     title_map = _retrieved_title_map(retrieved_context)
-    returned_titles = [title.strip() for title in judgment.returned_titles if title.strip()]
+    returned_titles = [
+        title.strip() for title in judgment.returned_titles if title.strip()
+    ]
     normalized_titles = [normalize_title(title) for title in returned_titles]
     title_count_ok = len(returned_titles) == 3
     titles_distinct = len(set(normalized_titles)) == len(normalized_titles)
@@ -194,7 +261,12 @@ def judge_listing_answer(
         and len(judgment.title_relevance) == len(returned_titles)
         and all(bool(item.relevant) for item in judgment.title_relevance)
     )
-    answer_correct = title_count_ok and titles_distinct and titles_in_retrieved_context and titles_relevant
+    answer_correct = (
+        title_count_ok
+        and titles_distinct
+        and titles_in_retrieved_context
+        and titles_relevant
+    )
 
     return {
         "mode": "listing",
@@ -208,7 +280,11 @@ def judge_listing_answer(
         "titles_in_retrieved_context": titles_in_retrieved_context,
         "titles_relevant": titles_relevant,
         "title_relevance": [
-            {"title": item.title, "relevant": item.relevant, "rationale": item.rationale}
+            {
+                "title": item.title,
+                "relevant": item.relevant,
+                "rationale": item.rationale,
+            }
             for item in judgment.title_relevance
         ],
         "rationale": judgment.rationale,
