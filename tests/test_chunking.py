@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from medium_rag.chunking import build_chunk_text, split_articles
+from medium_rag.chunking import (
+    build_chunk_text,
+    split_article,
+    split_articles,
+    vector_id_prefix_for_dataset,
+)
 from medium_rag.config import ChunkingConfig
 from medium_rag.types import Article
 
@@ -37,3 +42,20 @@ def test_split_articles_uses_deterministic_ids_and_resets_per_article() -> None:
     assert chunks[0].chunk_index == 0
     assert any(chunk.id == "medium-300:b:0000" for chunk in chunks)
     assert [chunk.id for chunk in chunks] == [chunk.id for chunk in split_articles(articles, config)]
+
+
+def test_split_article_accepts_full_dataset_vector_prefix() -> None:
+    config = ChunkingConfig(
+        chunk_size=10,
+        overlap_ratio=0.0,
+        tokenizer="approx",
+        separators=[" "],
+    )
+    article = Article(article_id="42", title="A", text="one two three four five six seven eight nine ten eleven")
+    chunks = split_article(article, config, vector_id_prefix="medium-full")
+    assert chunks[0].id == "medium-full:42:0000"
+
+
+def test_vector_id_prefix_falls_back_to_sanitized_dataset_name() -> None:
+    assert vector_id_prefix_for_dataset("Medium English 50MB!") == "medium-english-50mb"
+    assert vector_id_prefix_for_dataset("ignored", "Medium Full") == "medium-full"

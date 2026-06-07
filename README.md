@@ -105,6 +105,7 @@ Included configs:
 - `dense_no_mmr.yaml`: dense retrieval with article dedupe and no MMR.
 - `baseline_dense.yaml`: dense top-k retrieval without dedupe or MMR.
 - `chunk_500_mmr.yaml`: 500-token chunking with MMR in a separate namespace.
+- `full_dense_mmr_chunk512_overlap015_lambda075.yaml`: full 50 MB dataset config for deployment.
 
 Use a config explicitly:
 
@@ -126,9 +127,59 @@ Rebuild the configured Pinecone namespace after changing chunking, embedded text
 uv run python scripts/prepare_embeddings.py --config configs/experiments/dense_mmr.yaml --force
 ```
 
-Records use deterministic IDs in the form `medium-300:{article_id}:{chunk_index}`. The embedded chunk text includes title, authors, tags, and passage text. Retrieval settings such as `top_k`, `candidate_k`, MMR, and article dedupe live in the selected experiment config.
+Preview the full dataset chunk volume without embeddings or Pinecone writes:
+
+```sh
+uv run python scripts/prepare_embeddings.py \
+  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --dry-run
+```
+
+Index a small full-config smoke slice:
+
+```sh
+uv run python scripts/prepare_embeddings.py \
+  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --limit-articles 25 \
+  --force
+```
+
+Index the full dataset:
+
+```sh
+uv run python scripts/prepare_embeddings.py \
+  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --force
+```
+
+Records use deterministic IDs in the form `{vector_id_prefix}:{article_id}:{chunk_index}`. The sample configs default to `medium-300`, and the full dataset config uses `medium-full`. The embedded chunk text includes title, authors, tags, and passage text. Retrieval settings such as `top_k`, `candidate_k`, MMR, and article dedupe live in the selected experiment config.
 
 Pure retrieval-strategy experiments do not require reindexing when the namespace and chunking config are unchanged.
+
+## Vercel Deployment
+
+The deployed API should query an already-indexed Pinecone namespace. Do not index during Vercel build or function startup, and do not bundle `data/medium-english-50mb.csv`.
+
+Set these Vercel environment variables:
+
+```text
+LLMOD_API_KEY
+LLMOD_API_BASE=https://api.llmod.ai/v1
+PINECONE_API_KEY
+RAG_EXPERIMENT_CONFIG=configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml
+PINECONE_INDEX_NAME=medium-articles-full
+PINECONE_NAMESPACE=medium-english-50mb-chunk512-overlap077-v1
+RAG_LOG_DIR=/tmp/rag_logs
+```
+
+After indexing, deploy via the linked Vercel project and smoke test:
+
+```sh
+curl -s https://<preview-url>/api/stats/
+curl -s https://<preview-url>/api/prompt \
+  -H 'content-type: application/json' \
+  -d '{"question":"List exactly 3 articles about education. Return only the titles."}'
+```
 
 ## Benchmark Suite
 

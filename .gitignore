@@ -43,7 +43,6 @@ data/
 /.agents/skills
 /notes
 /sketch
-/uv.lock
 /skills-lock.json
 /package-lock.json
 .vercel

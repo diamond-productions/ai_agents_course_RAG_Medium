@@ -8,9 +8,13 @@ from typing import Any
 
 from medium_rag.config import RagExperimentConfig, load_experiment_config
 
-DEFAULT_LOG_DIR = Path(os.getenv("RAG_LOG_DIR", "logs"))
-DEFAULT_RAG_TRACE_LOG_PATH = DEFAULT_LOG_DIR / "rag_traces.jsonl"
-DEFAULT_EVAL_RUN_LOG_PATH = DEFAULT_LOG_DIR / "eval_runs.jsonl"
+def default_log_dir() -> Path:
+    configured = os.getenv("RAG_LOG_DIR")
+    if configured:
+        return Path(configured)
+    if os.getenv("VERCEL"):
+        return Path("/tmp/rag_logs")
+    return Path("logs")
 
 
 def utc_timestamp() -> str:
@@ -18,11 +22,11 @@ def utc_timestamp() -> str:
 
 
 def rag_trace_log_path() -> Path:
-    return Path(os.getenv("RAG_TRACE_LOG_PATH", str(DEFAULT_RAG_TRACE_LOG_PATH)))
+    return Path(os.getenv("RAG_TRACE_LOG_PATH", str(default_log_dir() / "rag_traces.jsonl")))
 
 
 def eval_run_log_path() -> Path:
-    return Path(os.getenv("EVAL_RUN_LOG_PATH", str(DEFAULT_EVAL_RUN_LOG_PATH)))
+    return Path(os.getenv("EVAL_RUN_LOG_PATH", str(default_log_dir() / "eval_runs.jsonl")))
 
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:

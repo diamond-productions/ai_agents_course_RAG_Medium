@@ -16,6 +16,7 @@ DEFAULT_EXPERIMENT_CONFIG_PATH = Path("configs/experiments/dense_mmr.yaml")
 class DatasetConfig(BaseModel):
     name: str
     path: str
+    vector_id_prefix: str | None = None
 
 
 class ChunkingConfig(BaseModel):
@@ -29,6 +30,7 @@ class EmbeddingConfig(BaseModel):
     model: str
     dimensions: int = Field(gt=0)
     api_base: str
+    batch_size: int = Field(default=64, gt=0)
 
 
 class PineconeConfig(BaseModel):
@@ -38,6 +40,7 @@ class PineconeConfig(BaseModel):
     region: str
     metric: Literal["cosine"]
     batch_size: int = Field(gt=0)
+    max_batch_bytes: int = Field(default=1_800_000, gt=0)
 
 
 class RetrievalConfig(BaseModel):
@@ -72,6 +75,9 @@ class RagExperimentConfig(BaseModel):
     def config_summary(self) -> dict[str, object]:
         return {
             "experiment_name": self.experiment_name,
+            "dataset_name": self.dataset.name,
+            "dataset_path": self.dataset.path,
+            "vector_id_prefix": self.dataset.vector_id_prefix,
             "chunk_size": self.chunking.chunk_size,
             "overlap_ratio": self.chunking.overlap_ratio,
             "tokenizer": self.chunking.tokenizer,
@@ -89,12 +95,30 @@ def _env_or_default(name: str, default: str) -> str:
     return default if value in (None, "") else value
 
 
+def _optional_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return int(value)
+
+
 def apply_env_overrides(config: RagExperimentConfig) -> RagExperimentConfig:
     data = config.model_dump()
+    data["dataset"]["name"] = _env_or_default("RAG_DATASET_NAME", config.dataset.name)
+    data["dataset"]["path"] = _env_or_default("RAG_DATASET_PATH", config.dataset.path)
+    vector_id_prefix = os.getenv("RAG_VECTOR_ID_PREFIX")
+    if vector_id_prefix not in (None, ""):
+        data["dataset"]["vector_id_prefix"] = vector_id_prefix
     data["embedding"]["api_base"] = _env_or_default("LLMOD_API_BASE", config.embedding.api_base)
+    data["embedding"]["batch_size"] = _optional_int_env("EMBEDDING_BATCH_SIZE", config.embedding.batch_size)
     data["generation"]["api_base"] = _env_or_default("LLMOD_API_BASE", config.generation.api_base)
     data["pinecone"]["index_name"] = _env_or_default("PINECONE_INDEX_NAME", config.pinecone.index_name)
     data["pinecone"]["namespace"] = _env_or_default("PINECONE_NAMESPACE", config.pinecone.namespace)
+    data["pinecone"]["batch_size"] = _optional_int_env("PINECONE_BATCH_SIZE", config.pinecone.batch_size)
+    data["pinecone"]["max_batch_bytes"] = _optional_int_env(
+        "PINECONE_MAX_BATCH_BYTES",
+        config.pinecone.max_batch_bytes,
+    )
     return RagExperimentConfig.model_validate(data)
 
 

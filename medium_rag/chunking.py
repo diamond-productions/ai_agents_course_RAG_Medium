@@ -31,15 +31,69 @@ def build_chunk_text(article: Article) -> str:
     return article.text.strip()
 
 
-def split_articles(articles: list[Article], config: ChunkingConfig) -> list[Chunk]:
+def sanitize_vector_id_prefix(value: str) -> str:
+    sanitized = "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in value.strip().lower())
+    return sanitized.strip("-") or "medium"
+
+
+def vector_id_prefix_for_dataset(dataset_name: str, configured_prefix: str | None = None) -> str:
+    return sanitize_vector_id_prefix(configured_prefix or dataset_name)
+
+
+def _build_splitter(config: ChunkingConfig) -> RecursiveCharacterTextSplitter:
     length_function = _tiktoken_len if config.tokenizer == "tiktoken" else approx_token_count
-    splitter = RecursiveCharacterTextSplitter(
+    return RecursiveCharacterTextSplitter(
         length_function=length_function,
         chunk_size=config.chunk_size,
         chunk_overlap=int(config.chunk_size * config.overlap_ratio),
         separators=config.separators,
     )
 
+
+def split_article(article: Article, config: ChunkingConfig, vector_id_prefix: str = "medium-300") -> list[Chunk]:
+    splitter = _build_splitter(config)
+    docs = [
+        Document(
+            page_content=build_chunk_text(article),
+            metadata={
+                "article_id": article.article_id,
+                "title": article.title,
+                "url": article.url,
+                "authors": article.authors,
+                "timestamp": article.timestamp,
+                "tags": article.tags,
+            },
+        )
+    ]
+    splits = splitter.split_documents(docs)
+
+    chunks: list[Chunk] = []
+    for chunk_index, split in enumerate(splits):
+        article_id = str(split.metadata["article_id"])
+        chunk_id = f"{article_id}-{chunk_index:04d}"
+        chunks.append(
+            Chunk(
+                id=f"{vector_id_prefix}:{article_id}:{chunk_index:04d}",
+                article_id=article_id,
+                chunk_id=chunk_id,
+                chunk_index=chunk_index,
+                text=split.page_content,
+                title=str(split.metadata.get("title", "")),
+                url=str(split.metadata.get("url", "")),
+                authors=str(split.metadata.get("authors", "")),
+                timestamp=str(split.metadata.get("timestamp", "")),
+                tags=str(split.metadata.get("tags", "")),
+            )
+        )
+    return chunks
+
+
+def split_articles(
+    articles: list[Article],
+    config: ChunkingConfig,
+    vector_id_prefix: str = "medium-300",
+) -> list[Chunk]:
+    splitter = _build_splitter(config)
     docs = [
         Document(
             page_content=build_chunk_text(article),
@@ -65,7 +119,7 @@ def split_articles(articles: list[Article], config: ChunkingConfig) -> list[Chun
         chunk_id = f"{article_id}-{chunk_index:04d}"
         chunks.append(
             Chunk(
-                id=f"medium-300:{article_id}:{chunk_index:04d}",
+                id=f"{vector_id_prefix}:{article_id}:{chunk_index:04d}",
                 article_id=article_id,
                 chunk_id=chunk_id,
                 chunk_index=chunk_index,
