@@ -106,6 +106,7 @@ Included configs:
 - `baseline_dense.yaml`: dense top-k retrieval without dedupe or MMR.
 - `chunk_500_mmr.yaml`: 500-token chunking with MMR in a separate namespace.
 - `full_dense_mmr_chunk512_overlap015_lambda075.yaml`: full 50 MB dataset config for deployment.
+- `configs/production.yaml`: stable production config used by the deployed API.
 
 Use a config explicitly:
 
@@ -131,7 +132,7 @@ Preview the full dataset chunk volume without embeddings or Pinecone writes:
 
 ```sh
 uv run python scripts/prepare_embeddings.py \
-  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --config configs/production.yaml \
   --dry-run
 ```
 
@@ -139,7 +140,7 @@ Index a small full-config smoke slice:
 
 ```sh
 uv run python scripts/prepare_embeddings.py \
-  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --config configs/production.yaml \
   --limit-articles 25 \
   --force
 ```
@@ -148,7 +149,7 @@ Index the full dataset:
 
 ```sh
 uv run python scripts/prepare_embeddings.py \
-  --config configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml \
+  --config configs/production.yaml \
   --force
 ```
 
@@ -166,7 +167,7 @@ Set these Vercel environment variables:
 LLMOD_API_KEY
 LLMOD_API_BASE=https://api.llmod.ai/v1
 PINECONE_API_KEY
-RAG_EXPERIMENT_CONFIG=configs/experiments/full_dense_mmr_chunk512_overlap015_lambda075.yaml
+RAG_EXPERIMENT_CONFIG=configs/production.yaml
 PINECONE_INDEX_NAME=medium-articles-full
 PINECONE_NAMESPACE=medium-english-50mb-chunk512-overlap077-v1
 RAG_LOG_DIR=/tmp/rag_logs

@@ -1,0 +1,40 @@
+experiment_name: full_dense_mmr_chunk512_overlap015_lambda075
+
+dataset:
+  name: medium-english-50mb
+  path: data/medium-english-50mb.csv
+  vector_id_prefix: medium-full
+
+chunking:
+  chunk_size: 512
+  overlap_ratio: 0.15
+  tokenizer: tiktoken
+  separators: ["\n\n", "\n", " ", ""]
+
+embedding:
+  model: 4UHRUIN-text-embedding-3-small
+  dimensions: 1536
+  api_base: https://api.llmod.ai/v1
+  batch_size: 64
+
+pinecone:
+  index_name: medium-articles-full
+  namespace: medium-english-50mb-chunk512-overlap077-v1
+  cloud: aws
+  region: us-east-1
+  metric: cosine
+  batch_size: 50
+  max_batch_bytes: 1800000
+
+retrieval:
+  strategy: dense_mmr
+  top_k: 7
+  candidate_k: 30
+  dedupe_by_article: true
+  mmr_enabled: true
+  mmr_lambda: 0.75
+
+generation:
+  chat_model: 4UHRUIN-gpt-5-mini
+  api_base: https://api.llmod.ai/v1
+  system_prompt_path: system_prompts/defualt_system_prompt_gpt5-mini.txt
