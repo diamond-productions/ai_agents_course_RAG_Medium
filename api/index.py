@@ -6,7 +6,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from medium_rag.config import load_experiment_config
-from medium_rag.logging import eval_run_log_path, rag_trace_log_path
 from medium_rag.pipeline import RagPipeline
 
 app = FastAPI(redirect_slashes=True)
@@ -22,6 +21,33 @@ class PromptRequest(BaseModel):
     evaluation: dict[str, Any] | None = None
 
 
+def api_prompt_contract(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "response": result["response"],
+        "context": [
+            {
+                "article_id": item.get("article_id", ""),
+                "title": item.get("title", ""),
+                "chunk": item.get("chunk", ""),
+                "score": item.get("score", 0.0),
+            }
+            for item in result.get("context", [])
+        ],
+        "Augmented_prompt": {
+            "System": (result.get("Augmented_prompt") or {}).get("System", ""),
+            "User": (result.get("Augmented_prompt") or {}).get("User", ""),
+        },
+    }
+
+
+def api_stats_contract() -> dict[str, Any]:
+    return {
+        "chunk_size": CONFIG.chunking.chunk_size,
+        "overlap_ratio": CONFIG.chunking.overlap_ratio,
+        "top_k": CONFIG.retrieval.top_k,
+    }
+
+
 @app.post("/api/prompt")
 def prompt(payload: PromptRequest) -> dict:
     question = payload.question.strip()
@@ -29,7 +55,7 @@ def prompt(payload: PromptRequest) -> dict:
         raise HTTPException(status_code=422, detail="question must not be empty")
 
     try:
-        return PIPELINE.answer_question(
+        result = PIPELINE.answer_question(
             question,
             log_trace=payload.log_rag_trace,
             trace_source="api",
@@ -37,16 +63,12 @@ def prompt(payload: PromptRequest) -> dict:
             expected_answer=payload.expected_answer,
             evaluation=payload.evaluation,
         )
+        return api_prompt_contract(result)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/stats")
 @app.get("/api/stats/")
 def stats() -> dict:
-    return {
-        **CONFIG.config_summary(),
-        "chat_model": CONFIG.generation.chat_model,
-        "embedding_model": CONFIG.embedding.model,
-        "rag_trace_log_path": str(rag_trace_log_path()),
-        "eval_run_log_path": str(eval_run_log_path()),
-    }
+    return api_stats_contract()
