@@ -92,50 +92,85 @@ FastAPI accepts optional eval fields on `POST /api/prompt`:
 The CLI supports the same logging:
 
 ```sh
-uv run python rag.py "Your question" --eval-run-id smoke-2026-06-01 --expected-answer "Expected answer text"
+uv run python rag.py "Your question" --config configs/experiments/dense_mmr.yaml --eval-run-id smoke-2026-06-01 --expected-answer "Expected answer text"
+```
+
+## Experiment Configs
+
+RAG behavior is driven by YAML experiment configs in `configs/experiments/`.
+
+Included configs:
+
+- `dense_mmr.yaml`: default dense retrieval with article dedupe and MMR.
+- `dense_no_mmr.yaml`: dense retrieval with article dedupe and no MMR.
+- `baseline_dense.yaml`: dense top-k retrieval without dedupe or MMR.
+- `chunk_500_mmr.yaml`: 500-token chunking with MMR in a separate namespace.
+
+Use a config explicitly:
+
+```sh
+uv run python rag.py "List exactly 3 articles about AI" --config configs/experiments/dense_mmr.yaml --no-log
+```
+
+Or set the default for apps/wrappers:
+
+```sh
+RAG_EXPERIMENT_CONFIG=configs/experiments/dense_no_mmr.yaml uv run rag-web
 ```
 
 ## Reindexing
 
-The default Pinecone namespace is `medium-300-chunk800-overlap120-v2`. Rebuild that namespace after changing chunk text, chunk IDs, or metadata:
+Rebuild the configured Pinecone namespace after changing chunking, embedded text, embedding model, dimensions, namespace, or dataset:
 
 ```sh
-uv run python scripts/prepare_embeddings.py
+uv run python scripts/prepare_embeddings.py --config configs/experiments/dense_mmr.yaml --force
 ```
 
-Records use deterministic IDs in the form `medium-300:{article_id}:{chunk_index}`. The embedded chunk text includes title, authors, tags, and passage text. Retrieval queries more candidate chunks than the final prompt size, applies Maximal Marginal Relevance, and deduplicates results by article before sending context to the model.
+Records use deterministic IDs in the form `medium-300:{article_id}:{chunk_index}`. The embedded chunk text includes title, authors, tags, and passage text. Retrieval settings such as `top_k`, `candidate_k`, MMR, and article dedupe live in the selected experiment config.
 
-Tune retrieval with:
+Pure retrieval-strategy experiments do not require reindexing when the namespace and chunking config are unchanged.
+
+## Benchmark Suite
+
+Generate an AI-curated requirement-focused benchmark suite from `data/medium-300-sample.csv`:
 
 ```sh
-RETRIEVAL_CANDIDATE_K=20
-MMR_ENABLED=true
-MMR_LAMBDA=0.65
+uv run python scripts/generate_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --case-count 25
 ```
 
-Higher `MMR_LAMBDA` favors relevance; lower values favor diversity.
+This calls the configured chat model using `LLMOD_API_KEY` and writes JSONL cases to `eval/medium_300_ai_benchmark.jsonl` for the assignment query types: precise fact retrieval, multi-result topic listing, key idea summary, recommendation with evidence, and unanswerable guardrail cases.
 
-## AI Benchmark
-
-Generate grounded benchmark questions from `data/medium-300-sample.csv`:
-
-```sh
-uv run python scripts/generate_ai_benchmark.py --articles 30 --cases-per-article 2
-```
-
-This writes JSONL cases to `eval/medium_300_ai_benchmark.jsonl`. Each case includes the expected source article, question, expected answer, and supporting evidence quote.
+Each case includes the expected source article when applicable, question, expected answer, supporting evidence quote, `question_type`, and `expected_titles` for multi-result listing retrieval diagnostics.
 
 Run the benchmark against the current RAG pipeline:
 
 ```sh
-uv run python scripts/run_ai_benchmark.py --top-k 7
+uv run python scripts/run_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --output eval/dense_mmr_results.jsonl
 ```
 
-This writes detailed results to `eval/medium_300_ai_benchmark_results.jsonl` and aggregate metrics to `eval/medium_300_ai_benchmark_results.summary.json`, including answer accuracy, grounded rate, mean judge score, and retrieval hit rate.
+This uses `OPENROUTER_API_KEY` for the benchmark judge. Override the judge model or endpoint with `OPENROUTER_MODEL` and `OPENROUTER_API_BASE`. It writes detailed results to the selected `--output` path and aggregate metrics to the matching `.summary.json` path. Metrics include answer accuracy, context faithfulness/grounded rate, mean judge score, Hit@1/3/5/K, MRR@K, Recall@K, expected-title recall for listing cases, and per-question-type metrics.
+
+For `multi_result_topic_listing`, answer correctness is based on returning exactly 3 distinct retrieved titles that are relevant to the requested topic. The AI-curated `expected_titles` are used only to diagnose retrieval recall, not as the only valid answer set.
+
+Compare retrieval variants:
+
+```sh
+uv run python scripts/run_ai_benchmark.py --config configs/experiments/dense_no_mmr.yaml --output eval/dense_no_mmr_results.jsonl
+uv run python scripts/run_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --output eval/dense_mmr_results.jsonl
+```
 
 For a quick smoke test:
 
 ```sh
-uv run python scripts/generate_ai_benchmark.py --articles 2 --cases-per-article 1
-uv run python scripts/run_ai_benchmark.py --limit 2
+uv run python scripts/generate_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --articles 10 --case-count 3
+uv run python scripts/run_ai_benchmark.py --config configs/experiments/dense_mmr.yaml --limit 2
+```
+
+## Tests
+
+Run non-live checks:
+
+```sh
+uv run python -m py_compile medium_rag/*.py medium_rag/vectorstores/*.py medium_rag/retrieval/*.py medium_rag/evaluation/*.py rag.py rag_utils.py rag_logging.py scripts/prepare_embeddings.py scripts/generate_ai_benchmark.py scripts/run_ai_benchmark.py api/index.py
+uv run pytest
 ```

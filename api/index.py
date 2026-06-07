@@ -1,18 +1,19 @@
-from fastapi import FastAPI, HTTPException
+from __future__ import annotations
+
 from typing import Any
 
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from api.config import CHAT_MODEL, CHUNK_SIZE, EMBEDDING_MODEL, OVERLAP_RATIO, TOP_K
-from rag_logging import eval_run_log_path, rag_trace_log_path
-from rag_utils import answer_question
+from medium_rag.config import load_experiment_config
+from medium_rag.logging import eval_run_log_path, rag_trace_log_path
+from medium_rag.pipeline import RagPipeline
 
 app = FastAPI(redirect_slashes=True)
+CONFIG = load_experiment_config()
+PIPELINE = RagPipeline(CONFIG)
 
 
-# ---------------------------------------------------------------------------
-# POST /api/prompt
-# ---------------------------------------------------------------------------
 class PromptRequest(BaseModel):
     question: str = Field(..., min_length=1)
     log_rag_trace: bool = True
@@ -28,7 +29,7 @@ def prompt(payload: PromptRequest) -> dict:
         raise HTTPException(status_code=422, detail="question must not be empty")
 
     try:
-        return answer_question(
+        return PIPELINE.answer_question(
             question,
             log_trace=payload.log_rag_trace,
             trace_source="api",
@@ -40,17 +41,12 @@ def prompt(payload: PromptRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-# ---------------------------------------------------------------------------
-# GET /api/stats
-# ---------------------------------------------------------------------------
 @app.get("/api/stats/")
 def stats() -> dict:
     return {
-        "chunk_size": CHUNK_SIZE,
-        "overlap_ratio": OVERLAP_RATIO,
-        "top_k": TOP_K,
-        "chat_model": CHAT_MODEL,
-        "embedding_model": EMBEDDING_MODEL,
+        **CONFIG.config_summary(),
+        "chat_model": CONFIG.generation.chat_model,
+        "embedding_model": CONFIG.embedding.model,
         "rag_trace_log_path": str(rag_trace_log_path()),
         "eval_run_log_path": str(eval_run_log_path()),
     }

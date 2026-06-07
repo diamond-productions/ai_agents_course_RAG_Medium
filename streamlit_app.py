@@ -7,9 +7,8 @@ from urllib.request import Request, urlopen
 
 import streamlit as st
 
-from api.config import CHAT_MODEL, CHUNK_SIZE, EMBEDDING_MODEL, OVERLAP_RATIO, TOP_K
 from rag_logging import eval_run_log_path, rag_trace_log_path, read_jsonl
-from rag_utils import answer_question
+from rag_utils import answer_question, get_default_config
 
 
 st.set_page_config(page_title="Medium RAG Chat", page_icon="M", layout="wide")
@@ -247,6 +246,7 @@ def _show_log_browser() -> None:
 
 
 with st.sidebar:
+    current_config = get_default_config()
     st.header("RAG Settings")
     use_http_api = st.toggle("Call FastAPI endpoint", value=False)
     api_base_url = st.text_input("API base URL", value="http://127.0.0.1:8000", disabled=not use_http_api)
@@ -256,11 +256,9 @@ with st.sidebar:
     st.divider()
     st.write(
         {
-            "chat_model": CHAT_MODEL,
-            "embedding_model": EMBEDDING_MODEL,
-            "chunk_size": CHUNK_SIZE,
-            "overlap_ratio": OVERLAP_RATIO,
-            "top_k": TOP_K,
+            **current_config.config_summary(),
+            "chat_model": current_config.generation.chat_model,
+            "embedding_model": current_config.embedding.model,
         }
     )
     st.caption("Default costs: gpt-5-mini input $0.25/M, output $2.00/M; embeddings $0.02/M.")

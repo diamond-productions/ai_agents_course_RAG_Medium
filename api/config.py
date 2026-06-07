@@ -1,23 +1,29 @@
-CHUNK_SIZE = 800
-OVERLAP_RATIO = 0.15
-TOP_K = 7
-RETRIEVAL_CANDIDATE_K = 20
-MMR_ENABLED = True
-MMR_LAMBDA = 0.65
-EMBEDDING_DIMENSIONS = 1536
-EMBEDDING_MODEL = "4UHRUIN-text-embedding-3-small"
-CHAT_MODEL = "4UHRUIN-gpt-5-mini"
-PINECONE_INDEX_NAME = "medium-articles"
-PINECONE_NAMESPACE = "medium-300-chunk800-overlap120-v2"
-SAMPLE_DATA_PATH = "data/medium-300-sample.csv"
-DEFAULT_BASE_URL = "https://api.llmod.ai/v1"
+from __future__ import annotations
 
-# Default OpenAI gpt-5-mini and text-embedding-3-small prices in USD per 1M tokens.
-CHAT_INPUT_COST_PER_1M_TOKENS = 0.25
-CHAT_OUTPUT_COST_PER_1M_TOKENS = 2.00
-EMBEDDING_COST_PER_1M_TOKENS = 0.02
+from medium_rag.config import load_experiment_config
+from medium_rag.generation import (
+    CHAT_INPUT_COST_PER_1M_TOKENS,
+    CHAT_OUTPUT_COST_PER_1M_TOKENS,
+    EMBEDDING_COST_PER_1M_TOKENS,
+    load_system_prompt,
+)
 
-SYSTEM_PROMPT = """You are a Medium-article assistant that answers questions strictly and only based on the Medium articles dataset context provided to you (metadata and article passages). You must not use any external knowledge, the open internet, or information that is not explicitly contained in the retrieved context. If the answer cannot be determined from the provided context, respond: “I don’t know based on the provided Medium articles data.” Always explain your answer using the given context, quoting or paraphrasing the relevant article passage or metadata when helpful."""
+_CONFIG = load_experiment_config()
+
+CHUNK_SIZE = _CONFIG.chunking.chunk_size
+OVERLAP_RATIO = _CONFIG.chunking.overlap_ratio
+TOP_K = _CONFIG.retrieval.top_k
+RETRIEVAL_CANDIDATE_K = _CONFIG.retrieval.candidate_k
+MMR_ENABLED = _CONFIG.retrieval.mmr_enabled
+MMR_LAMBDA = _CONFIG.retrieval.mmr_lambda
+EMBEDDING_DIMENSIONS = _CONFIG.embedding.dimensions
+EMBEDDING_MODEL = _CONFIG.embedding.model
+CHAT_MODEL = _CONFIG.generation.chat_model
+PINECONE_INDEX_NAME = _CONFIG.pinecone.index_name
+PINECONE_NAMESPACE = _CONFIG.pinecone.namespace
+SAMPLE_DATA_PATH = _CONFIG.dataset.path
+DEFAULT_BASE_URL = _CONFIG.generation.api_base
+SYSTEM_PROMPT = load_system_prompt(_CONFIG.generation.system_prompt_path)
 
 DUMMY_CONTEXT = [
     {

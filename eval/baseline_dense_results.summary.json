@@ -1,0 +1,56 @@
+{
+  "experiment_name": "baseline_dense_chunk800_overlap015",
+  "retrieval_strategy": "dense",
+  "top_k": 7,
+  "candidate_k": 7,
+  "mmr_lambda": 0.65,
+  "cases": 25,
+  "answer_accuracy": 0.72,
+  "grounded_rate": 0.72,
+  "mean_judge_score": 0.8768,
+  "retrieval_hit_rate": 0.782608695652174,
+  "question_types": {
+    "precise_fact_retrieval": 8,
+    "multi_result_topic_listing": 5,
+    "key_idea_summary": 6,
+    "recommendation_with_evidence": 4,
+    "unknown_or_unanswerable": 2
+  },
+  "question_type_metrics": {
+    "key_idea_summary": {
+      "cases": 6,
+      "answer_accuracy": 0.8333333333333334,
+      "grounded_rate": 0.8333333333333334,
+      "mean_judge_score": 0.9416666666666667,
+      "retrieval_hit_rate": 1.0
+    },
+    "multi_result_topic_listing": {
+      "cases": 5,
+      "answer_accuracy": 0.0,
+      "grounded_rate": 0.0,
+      "mean_judge_score": 0.534,
+      "retrieval_hit_rate": 0.0
+    },
+    "precise_fact_retrieval": {
+      "cases": 8,
+      "answer_accuracy": 1.0,
+      "grounded_rate": 1.0,
+      "mean_judge_score": 1.0,
+      "retrieval_hit_rate": 1.0
+    },
+    "recommendation_with_evidence": {
+      "cases": 4,
+      "answer_accuracy": 0.75,
+      "grounded_rate": 0.75,
+      "mean_judge_score": 0.9,
+      "retrieval_hit_rate": 1.0
+    },
+    "unknown_or_unanswerable": {
+      "cases": 2,
+      "answer_accuracy": 1.0,
+      "grounded_rate": 1.0,
+      "mean_judge_score": 1.0,
+      "retrieval_hit_rate": null
+    }
+  }
+}

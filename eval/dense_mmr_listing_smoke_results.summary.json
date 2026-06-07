@@ -1,0 +1,49 @@
+{
+  "experiment_name": "dense_mmr_chunk800_overlap015",
+  "retrieval_strategy": "dense_mmr",
+  "top_k": 7,
+  "candidate_k": 20,
+  "mmr_lambda": 0.65,
+  "cases": 1,
+  "answer_accuracy": 1.0,
+  "grounded_rate": 1.0,
+  "mean_judge_score": 1.0,
+  "retrieval_hit_rate": 1.0,
+  "faithfulness_rate": 1.0,
+  "retrieval_metrics": {
+    "hit_at_1": 1.0,
+    "hit_at_3": 1.0,
+    "hit_at_5": 1.0,
+    "hit_at_k": 1.0,
+    "mrr_at_k": 1.0,
+    "recall_at_k": 0.6666666666666666,
+    "expected_title_recall_at_k": 0.6666666666666666,
+    "expected_titles_hit_at_k": 0.0
+  },
+  "question_types": {
+    "multi_result_topic_listing": 1
+  },
+  "question_type_metrics": {
+    "multi_result_topic_listing": {
+      "cases": 1,
+      "answer_accuracy": 1.0,
+      "faithfulness_rate": 1.0,
+      "grounded_rate": 1.0,
+      "mean_judge_score": 1.0,
+      "retrieval_hit_rate": 1.0,
+      "hit_at_1": 1.0,
+      "hit_at_3": 1.0,
+      "hit_at_5": 1.0,
+      "hit_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
+      "expected_title_recall_at_k": 0.6666666666666666,
+      "expected_titles_hit_at_k": 0.0,
+      "listing_valid_rate": 1.0,
+      "listing_count_ok_rate": 1.0,
+      "listing_distinct_rate": 1.0,
+      "listing_context_title_rate": 1.0,
+      "listing_relevance_rate": 1.0
+    }
+  }
+}
